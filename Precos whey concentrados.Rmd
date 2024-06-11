@@ -1,0 +1,148 @@
+---
+title: "Preço whey"
+author: "Pedro S.R. Martins"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    highlight: textmate
+    code_folding: hide
+    theme: yeti
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
+---
+
+# Pacotes e banco de dados
+
+
+```{r}
+library(rvest)
+library(tidyverse)
+```
+
+O banco de dados é uma planilha com dados de preço de dose por whey. São as principais escolhas de whey concentrado que podem ser comprados na amazon e que não são tão caros.  
+A planilha era atualizada manualmente, mas resolvi inserir o link para deixar mais automática a atualização.  
+A única opção que não está na amazon é o da growth e que não será atualizado automaticamente, porque há variação de acordo com frete e cupons.  
+
+```{r}
+base <- readxl::read_excel("planilha whey.xlsx")
+head(base)
+links <- base %>% select(marca,peso, dose, n_doses, preço_dose, link) %>% 
+  filter(marca !="growth")
+```
+
+
+
+# Recuperando os preços
+
+Usando o pacote `rvest` para atualizar os custos de cada whey. Aparentemente, a amazon divide o preço entre o valor inteiro e os decimais. Por isso, há a divisão na hora de ler o html entre ".a-price-whole" e ".a-price-fraction".  
+
+Vamos pegar todos os preços usando um loop simples.
+
+```{r}
+prices <- 1:length(links$link)
+for (i in 1:length(links$link)){
+   temp <- links$link[i] %>% 
+    read_html() %>% 
+    html_elements(".a-price-whole") %>% 
+    html_text() %>% .[1] %>% 
+    str_remove_all(.,"[.,]") %>% as.numeric()
+    prices[i] <- temp
+}
+cents <- 1:length(links$link)
+for (i in 1:length(links$link)){
+  temp <- links$link[i] %>% 
+    read_html() %>% 
+    html_elements(".a-price-fraction") %>% 
+    html_text() %>% .[1] %>% 
+    str_remove_all(.,"[.,]") %>% as.numeric()
+  cents[i] <- temp
+}
+links$price <- as.numeric(paste0(prices,".", cents))
+
+```
+
+  
+Calculando o preço por dose e juntando novamente os dados da growth.  
+```{r}
+links <- links %>% 
+  mutate(preço_dose = price/n_doses)
+links <- full_join(links, base %>% filter(marca =="growth"))
+# links
+```
+
+
+
+# Visualizando os preços
+
+Criando um gráfico de pontos e linhas para visualizar os preços e o preço da dose.  
+
+  
+```{r}
+p1 <- links %>% 
+  ggplot(aes(x = marca,
+             y = price,label = price,
+             color = marca, 
+             text = peso))+
+  geom_line(group = 1, color = "black")+
+  geom_point(size = 5)+
+  theme(panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"), 
+        legend.key = element_rect(fill = "white"),
+        axis.text.y = element_text(colour="black", size = 12), 
+        # axis.text.x = element_text(colour="black", size = 12,
+        #                            angle = 90, vjust = 0.2, hjust = 1),
+        text = element_text(size = 15),
+        legend.position="none",
+        axis.text.x=element_blank(),
+        plot.title = element_text(hjust = 0.5,
+                                  face="bold"))+
+  labs(x = NULL, y = "Preço \n total")+
+  scale_y_continuous(limits = c((min(links$price)-5),(max(links$price)+5)),
+                     breaks = seq(from = (min(links$price)-5),to = (max(links$price)+5), by = 15))
+
+p2 <- links %>% 
+  ggplot(aes(x = marca,
+             y = preço_dose,label = preço_dose,
+             color = marca))+
+  geom_line(group = 1, color = "black")+
+  geom_point(size = 5)+
+  theme(panel.background = element_blank(), 
+        axis.line = element_line(colour = "black"), 
+        legend.key = element_rect(fill = "white"),
+        axis.text.y = element_text(colour="black", size = 12), 
+        axis.text.x = element_text(colour="black", size = 12,
+                                   angle = 45, vjust = 0.2, hjust = 1),
+        text = element_text(size = 15),
+        
+        legend.position="none",
+        plot.title = element_text(hjust = 0.5,
+                                  face="bold"))+
+  labs(x = NULL, y = "Preço \n por dose", title = "Preços whey")+
+  scale_y_continuous(limits = c((min(links$preço_dose)-.5),(max(links$preço_dose)+.5)),
+                     breaks = seq(from = (min(links$preço_dose)-.5),to = (max(links$preço_dose)+.5), by = .5))
+```
+
+
+
+Criando um gráfico interativo com o pacote `plotly`
+
+
+```{r heigth = 30}
+plotly::subplot(p1, p2, nrows = 2,titleY = TRUE,
+                margin = 0.04, heights = c(.65, 0.35))
+```
+
+
+# Resultados em tabela
+
+```{r}
+links %>% 
+  select(marca, peso, dose, n_doses, preço_dose, price, link) %>% 
+  DT::datatable(.)
+```
+
+
+

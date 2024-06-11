@@ -1,0 +1,177 @@
+---
+title: "Missing"
+author: "Pedro S.R. Martins"
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    highlight: textmate
+    code_folding: show
+---
+
+Code inspired by this blog post https://www.r-bloggers.com/2023/01/imputation-in-r-top-3-ways-for-imputing-missing-data/
+
+
+
+
+# Packages
+
+```{r}
+pacman::p_load(tidyverse, #data manipulation
+               janitor,
+               easystats,
+               purrr,
+               knitr,
+               mice) 
+options(knitr.kable.NA = '')
+base <-readRDS("basemiss.rds")
+```
+
+
+# Imputing data
+
+```{r}
+items <- base %>% select(starts_with("dass"), -ends_with("total"))
+
+imputed_pmm = complete(mice(items, method = "pmm"))
+imputed_midastouch = complete(mice(items, method = "midastouch"))
+imputed_sample = complete(mice(items, method = "sample"))
+imputed_rf = complete(mice(items, method = "rf"))
+imputed_polr <- complete(mice(items %>% 
+  mutate(across(starts_with("dass"), ~as.ordered(.x))), 
+  method = "polr"))
+
+results <- list(original = items,
+                pmm=imputed_pmm,
+                midastouch=imputed_midastouch,
+                sample=imputed_sample,
+                rf=imputed_rf,
+                pol=imputed_polr)
+
+
+```
+
+
+
+# Visualizing frequencies for each imputation method {.tabset .tabset-fade}
+
+
+## Using a loop   
+  
+  
+  
+Using a loop may not be as nice to make a communication plot.
+
+   
+```{r}
+for(i in 1:length(results)){
+  print(results[[i]] %>% 
+    pivot_longer(everything()) %>% 
+    ggplot(aes(x=value))+
+    geom_histogram(stat = "count")+
+    facet_wrap(name~.)+
+    theme_bw()+
+    labs(title = names(results)[[i]]))
+}
+```
+  
+  
+  
+## All in one plot 
+  
+  
+```{r fig.width=17}
+data.frame(results) %>% 
+  mutate(across(pol.dass21_01:pol.dass21_21, ~ as.numeric(.x) - 1)) %>% 
+  pivot_longer(everything()) %>% 
+  separate(col = name,
+           into = c("data","item"),
+           sep = ".dass21_") %>% 
+  group_by(data, item) %>% 
+  count(value) %>% 
+  mutate(data = factor(data, levels = c("original",
+                                        "pmm",
+                                        "midastouch",
+                                        "sample",
+                                        "rf",
+                                        "pol"))) %>% 
+  ggplot(aes(x = value, y = n, fill = data))+
+  geom_bar(stat = "identity", 
+           position = position_dodge(.9))+
+  scale_fill_social()+
+  facet_wrap(item~.)+
+  theme_bw()
+  
+```
+
+
+# Checking results using means and SD
+
+
+```{r}
+data.frame(results) %>% 
+  mutate(across(pol.dass21_01:pol.dass21_21, ~ as.numeric(.x) - 1)) %>% 
+  pivot_longer(everything()) %>% 
+  separate(col = name,
+           into = c("data","item"),
+           sep = ".dass21_") %>% 
+  mutate(data = factor(data, levels = c("original",
+                                        "pmm",
+                                        "midastouch",
+                                        "sample",
+                                        "rf",
+                                        "pol"))) %>% 
+  group_by(data, item) %>%
+  summarise(mean = mean(value, na.rm = T),
+            sd = sd(value, na.rm = T),
+            ) %>% ungroup() %>% 
+
+  pivot_wider(id_cols = item,
+              values_from = c(mean, sd), 
+              names_vary = "fastest", 
+              names_from = data) %>% kable(., digits = 2)
+```
+
+
+
+
+# A plot for means and SD's
+  
+   
+   
+   
+
+```{r}
+data.frame(results) %>% 
+  mutate(across(pol.dass21_01:pol.dass21_21, ~ as.numeric(.x) - 1)) %>% 
+  pivot_longer(everything()) %>% 
+  separate(col = name,
+           into = c("data","item"),
+           sep = ".dass21_") %>% 
+  group_by(data, item) %>%
+  summarise(mean = mean(value, na.rm = T),
+            sd = sd(value, na.rm = T),
+            ) %>% ungroup() %>%
+  mutate(data = factor(data, levels = c("original",
+                                        "pmm",
+                                        "midastouch",
+                                        "sample",
+                                        "rf",
+                                        "pol"))) %>% 
+  ggplot(aes(x = item,
+             y = mean,
+             color = data,
+             group = data))+
+  geom_point(position = position_dodge(.5), size = 2)+
+  scale_color_social()+
+  geom_errorbar(aes(ymin = mean - sd,
+                    ymax = mean + sd),
+                # color = "grey60", 
+                width = .2, size = .5,
+                position = position_dodge(.5))+
+  theme_classic()+
+  theme(legend.position = "bottom")
+```
+
+
+
+
